@@ -13,6 +13,20 @@
 
 ---
 
+## Background: etcd and Why This Matters
+
+etcd is the control plane's persistent source of truth. It is loosely like Parameter Store in that it is a key-value system, but if you lose etcd you lose the cluster's full memory, not just one parameter set. Every object you create through the API server, including Deployments, Pods, ConfigMaps, Secrets, RBAC rules, Services, and Endpoints, is serialized into key-value entries there. The API server, scheduler, and controller manager are mostly stateless processes around that data store: they read desired state from etcd, act on it, then write status changes back.
+
+If etcd data is lost, the cluster loses memory of what should exist. Some containers may continue running briefly because kubelet already has local pod instructions, but normal operations break quickly: scheduling stalls, rollouts stop, service discovery drifts, and new writes fail or become meaningless. In AWS terms, this is closer to losing the full control-state database for an account than losing one EC2 instance or one EBS volume.
+
+A snapshot is a point-in-time copy of the entire etcd database. `etcdctl snapshot save` asks a live etcd member to produce a consistent snapshot file while the cluster is running, and that file contains all keys known at that moment. `etcdutl snapshot restore` then expands that file into a fresh etcd data directory so a member can start from restored state.
+
+The certificate flags are not optional with `etcdctl` because etcd uses mutual TLS. `--cacert` verifies the etcd server certificate, and `--cert` plus `--key` present the client identity; missing or mismatched files are rejected by design. In kubeadm-based clusters these files are typically under `/etc/kubernetes/pki/etcd/`. `etcdutl` is different because it operates offline on files directly and does not open a network TLS session, so restore commands do not need endpoint or cert flags.
+
+Operationally, restore is a data-path swap: snapshot first, stop or isolate the running member, restore into a target data directory, repoint etcd to that directory, then restart and validate cluster objects. This lab rehearses that sequence safely by restoring to an alternate path in kind so you learn the flow without damaging live state. For deeper reference, see the official etcd backup and restore task: https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/.
+
+---
+
 ## Safety Warning
 
 This lab uses a **safe rehearsal path** by restoring snapshots into an alternate directory first.  

@@ -28,6 +28,59 @@ If DNS/TLS isn't live yet, you can still deploy and verify the Kubernetes resour
 
 ---
 
+## Background: What is Gateway API?
+
+### Why Ingress wasn't enough
+
+Ingress solved the "one IP, many services" problem, but it accumulated pain points over time:
+
+- **Too much lives in annotations.** TLS config, timeouts, rate limits, header rewrites — none of these are in the spec. Every controller invented its own annotation namespace (`nginx.ingress.kubernetes.io/...`, `traefik.ingress.kubernetes.io/...`). Manifests became controller-specific.
+- **No role model.** One resource (`Ingress`) is written by the app team but describes cluster-wide infrastructure. In multi-tenant clusters this creates conflict: who owns TLS? Who controls which namespaces can publish routes?
+- **HTTP only.** Ingress has no story for TCP or UDP traffic.
+
+Gateway API was designed from scratch by Kubernetes SIG Network to fix all three. It graduated to **stable (v1)** in Kubernetes 1.28 (2023) and is the officially recommended path for new clusters.
+
+### The three-resource model
+
+Gateway API splits routing across three resources, each owned by a different team:
+
+```
+GatewayClass          ← infra/cloud team: "what kind of gateway?"
+    └── Gateway        ← platform team: "what ports/TLS/namespaces?"
+            └── HTTPRoute  ← app team: "what hostname/paths route where?"
+```
+
+| Resource | Scope | Who writes it | What it does |
+|---|---|---|---|
+| `GatewayClass` | Cluster | Infra/cloud team | Names a controller implementation (Cilium, Envoy, nginx) |
+| `Gateway` | Cluster or Namespace | Platform team | Declares listeners (ports, hostnames, TLS), controls which namespaces can attach |
+| `HTTPRoute` | Namespace | App team | Maps hostnames + paths to Services in the same namespace |
+
+In this lab you only write an `HTTPRoute`. The `Gateway` is already running — the instructor provisioned it. This mirrors how real multi-tenant clusters work.
+
+### What it enables that Ingress can't
+
+- **Route-level traffic splitting** — send 90% to `v1`, 10% to `v2` in the spec, no annotations
+- **Header and path rewrites** — first-class fields, not controller-specific annotations
+- **TCP/UDP routes** — `TCPRoute`, `UDPRoute`, `TLSRoute` resources for non-HTTP traffic
+- **Cross-namespace references** — a `Gateway` in `kube-system` can accept routes from any allowed namespace
+- **Portable manifests** — same `HTTPRoute` YAML works on Cilium, Envoy Gateway, Contour, or NGINX Gateway Fabric
+
+### Status in the ecosystem
+
+Gateway API is stable but adoption is still catching up to Ingress. As of 2025:
+- **Cilium**, **Contour**, **Envoy Gateway**, and **NGINX Gateway Fabric** all have production-ready implementations
+- Major cloud providers are adding native Gateway API support (GKE, EKS, AKS)
+- The Ingress API is still supported with no removal date, but receives no new features
+
+**Further reading:**
+- [Gateway API concepts (Kubernetes docs)](https://kubernetes.io/docs/concepts/services-networking/gateway/)
+- [Gateway API project site + full spec](https://gateway-api.sigs.k8s.io/)
+- [HTTPRoute reference](https://gateway-api.sigs.k8s.io/api-types/httproute/)
+- [Cilium Gateway API docs](https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/)
+
+---
+
 ## Part 1: Ingress vs Gateway API (Quick Comparison)
 
 | Topic | Ingress | Gateway API |

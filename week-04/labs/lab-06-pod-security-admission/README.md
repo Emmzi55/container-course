@@ -13,6 +13,20 @@
 
 ---
 
+## Background: How Pod Security Admission Actually Enforces Policy
+
+Pod Security Admission (PSA) runs at API admission time, before a pod is persisted, so it is a preventive control and not a runtime detector. When you submit a pod or a controller that creates pods, PSA evaluates the effective pod spec against a Pod Security Standard profile and either rejects it, warns, or records an audit event depending on namespace labels. That means most failures in this lab happen before scheduling, which is why you see admission errors instead of container crash logs.
+
+The three label families are `enforce`, `audit`, and `warn`, and they are deliberately independent so you can move teams toward stricter policy without instant outages. `enforce` blocks non-compliant pod creation, `warn` allows creation but prints violations back to the client, and `audit` allows creation while attaching policy violations to audit signals for later review. A common production rollout is baseline in enforce and restricted in warn or audit so developers can remediate before enforcement gets tightened.
+
+PSA is namespace-scoped, so the namespace label set is effectively the security boundary for this mechanism. Existing pods are not retroactively killed when you change labels; policy applies when new pods are created or old pods are replaced, which is why rollouts surface issues that old workloads might have hidden. In AWS terms, this is closer to an organization guardrail like an SCP at account boundary than to a per-instance firewall rule: it controls what can be created, not packet flow after creation.
+
+Most restricted-profile failures come from a small set of fields that appear later in this lab: running as root, allowing privilege escalation, using broad Linux capabilities, writable root filesystems, and missing seccomp defaults. The fix pattern is predictable: set pod and container `securityContext` fields to non-root and least privilege, then add explicit writable ephemeral mounts like `emptyDir` for paths the application must write to.
+
+Version pinning matters because Pod Security Standards evolve with Kubernetes releases. If you do not set `*-version` labels, a cluster upgrade can tighten checks and suddenly reject manifests that used to pass. Pinning labels gives you controlled policy behavior during upgrades, then you deliberately move the pin when you are ready to enforce newer rules. For deeper details, see the official Pod Security Admission docs: https://kubernetes.io/docs/concepts/security/pod-security-admission/.
+
+---
+
 ## Prerequisites
 
 Use your local kind cluster:

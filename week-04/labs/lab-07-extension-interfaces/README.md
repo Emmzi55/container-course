@@ -13,6 +13,20 @@
 
 ---
 
+## Background: Why CRI, CNI, and CSI Exist
+
+Kubernetes core components intentionally do not implement container runtime, networking, or storage drivers directly. Instead, kubelet and control-plane controllers call standardized interfaces so clusters can swap implementations without changing Kubernetes itself. That design is why the same manifests can run on containerd or CRI-O, on kindnet or Cilium, and on local-path or cloud CSI drivers.
+
+CRI, CNI, and CSI each own a different layer. CRI is node-local process control, where kubelet asks the runtime to pull images and start or stop containers. CNI is pod network plumbing, where a plugin wires interfaces, IP allocation, and routes so pods can communicate. CSI is persistent volume lifecycle, where a storage plugin provisions, attaches, mounts, and expands volumes requested by PVCs.
+
+The practical debugging value is failure isolation. If pods stay in `ContainerCreating` with runtime errors, you investigate CRI first. If pods start but cannot reach services or get stuck on network setup, you inspect CNI. If PVCs stay `Pending` or volumes fail to attach, you focus on CSI. Students often treat these as one big "Kubernetes networking/storage issue," but each interface has its own process, sockets, logs, and failure signatures.
+
+In kind, these layers are visible in simplified form: containerd through the CRI socket, kindnet through CNI config under `/etc/cni/net.d/`, and local-path provisioner for storage behavior. That simplicity is useful because the same mental model scales to production, where the names change to platform drivers like AWS VPC CNI or EBS CSI but the control boundaries stay the same. The AWS analogy is direct: CNI maps to VPC data-plane integration and CSI maps to EBS or EFS integration, while CRI is the node runtime control plane.
+
+This lab is not about memorizing plugin names; it is about learning where Kubernetes stops and where integrations begin. Once that boundary is clear, troubleshooting becomes a targeted system check instead of trial-and-error commands. For deeper reference on extension points, see the Kubernetes extension concepts docs: https://kubernetes.io/docs/concepts/extend-kubernetes/.
+
+---
+
 ## Prerequisites
 
 Use your local kind cluster:

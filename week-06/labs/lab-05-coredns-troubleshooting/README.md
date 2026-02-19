@@ -13,6 +13,79 @@
 
 ---
 
+## Background: CoreDNS and Cluster DNS
+
+### How Kubernetes service discovery works
+
+When you create a Service, Kubernetes automatically registers a DNS name for it. Any pod in the cluster can resolve `my-service.my-namespace.svc.cluster.local` without any extra configuration.
+
+This works because every pod is configured (via `/etc/resolv.conf`) to use a DNS server running inside the cluster. That server is **CoreDNS**.
+
+```
+Pod wants to reach "redis"
+    │
+    ▼
+/etc/resolv.conf: nameserver 10.96.0.10  ← CoreDNS ClusterIP
+    │
+    ▼
+CoreDNS: looks up redis in cluster.local zone
+    │  → found: redis.default.svc.cluster.local → 10.96.42.1
+    ▼
+Pod connects to 10.96.42.1 (the Service ClusterIP)
+```
+
+### What CoreDNS is
+
+CoreDNS is a Go-based DNS server that replaced kube-dns in Kubernetes 1.13. It runs as a Deployment in `kube-system`, usually with 2 replicas. Its configuration lives in a ConfigMap called `coredns`, in a format called a **Corefile**.
+
+A minimal Corefile:
+
+```
+cluster.local {
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+        pods insecure
+        fallthrough in-addr.arpa ip6.arpa
+    }
+    cache 30
+    loop
+    reload
+    forward . /etc/resolv.conf   ← upstream for non-cluster names
+}
+```
+
+The `forward` directive controls where non-cluster DNS queries go (e.g. `google.com`). If this points at an invalid target, external resolution fails — which often looks like a total network outage.
+
+### Why DNS failures are deceptive
+
+DNS failure is one of the hardest cluster issues to diagnose because:
+
+- Pods stay `Running` — DNS failure doesn't crash containers
+- Error messages are misleading — apps report "connection refused" or "host not found", not "DNS is broken"
+- It's cascading — if your app can't resolve `redis`, it reports a Redis error, not a DNS error
+
+The fastest triage path is always: **can a pod resolve `kubernetes.default.svc.cluster.local`?** If not, DNS is the problem, not your app.
+
+### Common CoreDNS failure modes
+
+| Symptom | Likely cause |
+|---|---|
+| All DNS fails, including cluster names | CoreDNS pods crashed or OOMKilled |
+| Cluster names resolve, external names fail | Bad `forward` upstream in Corefile |
+| Intermittent timeouts | CoreDNS under-resourced; scale the deployment |
+| `SERVFAIL` on specific names | Corefile syntax error or loop plugin triggered |
+
+### The Corefile lives in a ConfigMap
+
+This is both a feature and a footgun. You can update CoreDNS configuration with `kubectl edit configmap coredns -n kube-system` (or patch it), and CoreDNS reloads automatically (the `reload` plugin watches for changes). But a bad edit takes effect immediately across the whole cluster.
+
+**Further reading:**
+- [DNS for Services and Pods (Kubernetes docs)](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
+- [CoreDNS Customization](https://kubernetes.io/docs/tasks/administer-cluster/dns-custom-nameservers/)
+- [Debugging DNS resolution](https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/)
+- [CoreDNS project docs](https://coredns.io/manual/toc/)
+
+---
+
 ## Prerequisites
 
 Use local kind cluster only:

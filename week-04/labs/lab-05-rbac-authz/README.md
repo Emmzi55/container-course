@@ -13,6 +13,20 @@
 
 ---
 
+## Background: How RBAC Works
+
+Kubernetes RBAC starts with identity, but identity works differently than AWS IAM. Kubernetes recognizes `User`, `ServiceAccount`, and `Group`, and only one of those is a first-class Kubernetes object: `ServiceAccount` inside a namespace. `User` identities usually come from client certificates or an external identity provider (OIDC), not from objects stored in the cluster, and `kubectl` normally uses whatever user identity is configured in your kubeconfig context.
+
+Roles and bindings are separate objects on purpose. A Role or ClusterRole defines what actions are allowed on which resources, with rule fields like `apiGroups`, `resources`, and `verbs`, while a RoleBinding or ClusterRoleBinding attaches that permission set to a specific subject through `subjects` and `roleRef`. This separation keeps permissions reusable and auditable because you can attach the same role to many identities without duplicating policy rules.
+
+Scope is the next thing that trips people up. `Role` and `RoleBinding` are namespace-scoped, while `ClusterRole` and `ClusterRoleBinding` are cluster-scoped. A useful pattern is defining a reusable `ClusterRole` such as read-only pods, then using a namespaced `RoleBinding` to grant that access only in one namespace.
+
+`kubectl auth can-i` asks the API server to evaluate authorization exactly like a real request, so it is the fastest way to prove whether an action should be allowed. With `--as=...`, you impersonate another identity and test policy behavior without logging in as that principal. This is the same mental model as IAM policy simulation in AWS before you hand permissions to a real workload.
+
+The most common RBAC mistake is crossing namespace boundaries with a RoleBinding. A RoleBinding in namespace `A` can only reference a `Role` that also lives in namespace `A`; pointing at a Role in another namespace does not grant what you expect. You will intentionally hit this in Part 4, so read failures as a scoping bug first, not as a syntax bug. For deeper reference, see the official Kubernetes RBAC docs: https://kubernetes.io/docs/reference/access-authn-authz/rbac/.
+
+---
+
 ## Prerequisites
 
 Use your local kind cluster:

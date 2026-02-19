@@ -15,6 +15,22 @@
 
 ---
 
+## Background: Full kubeadm Lifecycle on Real Nodes
+
+This lab is the full version of kubeadm operations on real virtual machines, so it helps to separate installation from bootstrap. `kubeadm` does not provide the Kubernetes binaries; your scripts install `kubelet`, `kubeadm`, `kubectl`, and containerd first, then `kubeadm` assembles those pieces into a working cluster by generating PKI, writing kubeconfig files, producing static pod manifests, and creating bootstrap tokens and RBAC defaults.
+
+Control-plane components come up as static pods from files in `/etc/kubernetes/manifests/`, which kubelet watches directly. That bootstrap path is why cluster creation works even before the API server is online: kubelet starts etcd and kube-apiserver from disk, the API becomes available, then the rest of cluster automation can operate. If these manifests are wrong, the control plane fails at startup regardless of what objects exist in the API.
+
+Every join and etcd command in this lab depends on the PKI that kubeadm creates under `/etc/kubernetes/pki/`. Worker join uses a time-limited bootstrap token plus the CA hash to trust the control plane endpoint, and control-plane-to-control-plane trust uses issued certificates and optional uploaded cert bundles for additional masters. Treat `admin.conf` as a privileged credential file, because your local `~/.kube/config` is copied from it and has cluster-admin rights.
+
+The `NotReady` period after `kubeadm init` is expected until a CNI is installed, because pod networking is not functional yet. Calico or Cilium supplies that missing network layer and brings nodes to `Ready`. In AWS terms, this is similar to launching instances and control software first, then attaching the network policy and routing system that allows workload traffic to flow correctly.
+
+Upgrade flow in this lab follows kubeadm's strict sequencing rules: control plane first, workers second, one minor version at a time, and drain or uncordon around worker maintenance so workloads stay available. Version-skew policy is not advisory; kubelet may be only one minor behind API server, so skipping minors can leave the cluster unsupported or unstable.
+
+If you remember one operational model for this lab, use this: preflight and binaries first, kubeadm bootstrap second, CNI readiness third, then controlled lifecycle actions like join, upgrade, and reset. That model explains why each section exists and where to investigate when something fails. For deeper mechanics, see kubeadm implementation details: https://kubernetes.io/docs/reference/setup-tools/kubeadm/implementation-details/.
+
+---
+
 ## Prerequisites
 
 **Local machine requirements:**

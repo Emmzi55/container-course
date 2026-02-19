@@ -25,6 +25,51 @@ Uptime Kuma is your feedback loop. When networking breaks, monitors go red.
 
 ---
 
+## Background: What are NetworkPolicies?
+
+### The default Kubernetes network model
+
+Out of the box, Kubernetes runs a **flat, allow-all network**. Every pod can reach every other pod in the cluster, regardless of namespace. Every pod can reach the internet. There are no firewall rules.
+
+This is convenient for getting started, but dangerous in production. A single compromised container can scan every other pod's port, exfiltrate data, or pivot to the control plane.
+
+### What NetworkPolicy does
+
+A `NetworkPolicy` is a Kubernetes resource that defines L3/L4 firewall rules for pods. Once any NetworkPolicy selects a pod, only traffic explicitly allowed by a policy is permitted. Unselected pods remain allow-all.
+
+```
+No NetworkPolicy:        With default-deny:
+┌──────────────┐         ┌──────────────┐
+│  any pod  ──────────▶ │  any pod  ✗  │  (blocked unless a policy allows it)
+└──────────────┘         └──────────────┘
+```
+
+Rules can match on:
+- **`podSelector`** — which pods in the same namespace this policy applies to
+- **`namespaceSelector`** — allow traffic from/to pods in specific namespaces
+- **`ipBlock`** — allow traffic from/to specific IP CIDR ranges (e.g. the internet)
+- **ports** — restrict to specific protocol/port combinations
+
+### Critical behaviour to understand
+
+**1. Both directions must be open.** If pod A wants to talk to pod B, you need an egress rule on A AND an ingress rule on B. Forgetting either side silently drops traffic.
+
+**2. Policies are additive (union).** Multiple NetworkPolicies selecting the same pod combine — you never "replace" an existing policy by applying another. Delete the old one if you want to remove a rule.
+
+**3. The CNI must support it.** NetworkPolicy is just an API object. The CNI plugin (Cilium, Calico, Weave) is responsible for actually enforcing it. Some CNIs (Flannel in its basic form) ignore NetworkPolicies entirely. The shared cluster uses Cilium, which fully enforces them.
+
+### A note on scope
+
+NetworkPolicy is intentionally L3/L4 only — it works on IPs and ports, not HTTP paths or headers. For application-level policies ("only allow GET /api"), you need a service mesh (Istio, Cilium Network Policy with L7 rules).
+
+**Further reading:**
+- [NetworkPolicy concepts](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
+- [NetworkPolicy reference](https://kubernetes.io/docs/reference/kubernetes-api/policy-resources/network-policy-v1/)
+- [Cilium NetworkPolicy docs](https://docs.cilium.io/en/stable/security/policy/)
+- [NetworkPolicy editor (visual tool)](https://editor.networkpolicy.io/)
+
+---
+
 ## Part 1: Verify the Current State Works
 
 Make sure your dev namespace is healthy before you start:

@@ -14,6 +14,22 @@
 
 ---
 
+## Background: What kubeadm Does
+
+`kubeadm` is a bootstrap tool, not the Kubernetes runtime itself. The binaries such as `kubelet`, `kube-apiserver`, `etcd`, `kube-controller-manager`, and `kube-scheduler` are already installed before you run this lab. `kubeadm init` wires those components into a functioning control plane by generating PKI assets, writing static pod manifests, creating kubeconfig files, creating bootstrap tokens for joins, and applying baseline RBAC so components can talk securely.
+
+The control plane components come up as static pods, which is a special bootstrap path. `kubelet` watches `/etc/kubernetes/manifests/` directly on disk and launches whatever pod manifests are present there, even before an API server is reachable. That is how Kubernetes starts itself: kubelet starts the API server as a static pod, then the API server can serve the rest of the cluster objects. The closest AWS analogy is EC2 user data that runs at boot before the instance is registered with higher-level services.
+
+PKI is central to every command in this lab. Kubernetes components authenticate and encrypt traffic with TLS, and kubeadm creates a cluster CA plus component certificates under `/etc/kubernetes/pki/`. When you later run `etcdctl`, flags like `--cacert`, `--cert`, and `--key` are mandatory because etcd uses mutual TLS and validates both client and server identity.
+
+The `.conf` files kubeadm writes are kubeconfig files for different identities and components, including `/etc/kubernetes/admin.conf`, `/etc/kubernetes/controller-manager.conf`, and `/etc/kubernetes/scheduler.conf`. Each kubeconfig carries the API endpoint, CA trust, and client credentials for that actor. Your local `~/.kube/config` is usually a copy of `admin.conf`, which means full cluster-admin access; treat it like `~/.aws/credentials` with admin keys.
+
+Preflight checks are guardrails against real failure modes, not ceremony. Swap, missing `br_netfilter`, disabled IP forwarding, or a dead container runtime can all produce partial startup symptoms that look random later, such as kubelet flapping, networking failures, or control-plane pods repeatedly restarting. Fixing these early is faster than debugging a half-initialized cluster.
+
+After `kubeadm init`, you should expect static pod manifests in `/etc/kubernetes/manifests/`, certs in `/etc/kubernetes/pki/`, kubeconfigs in `/etc/kubernetes/`, and a printed join command containing token and discovery hash. The node often stays `NotReady` until a CNI is installed because pod networking is not configured yet; start troubleshooting with `kubectl get pods -n kube-system`, `journalctl -u kubelet`, and the files kubeadm generated. For deeper details, see the kubeadm implementation details page: https://kubernetes.io/docs/reference/setup-tools/kubeadm/implementation-details/.
+
+---
+
 ## Lab Safety and Scope
 
 This lab is for a **disposable environment only**. Do not run these commands on a shared class cluster or production system.

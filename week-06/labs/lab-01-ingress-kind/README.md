@@ -17,6 +17,57 @@ In this lab, you build the missing layer: **an Ingress controller**. You'll crea
 
 ---
 
+## Background: What is Ingress?
+
+### The problem Ingress solves
+
+Before Ingress existed, getting external traffic into a cluster meant one of:
+
+- **NodePort** — punch a high-numbered port (30000-32767) on every node. Hard to use with real hostnames, not firewall-friendly.
+- **LoadBalancer** — one cloud load balancer per Service. Works great, but costs money and you end up with 10 public IPs for 10 services.
+
+Neither approach lets you route `myapp.com/api` and `myapp.com/static` to different pods, or serve multiple domains from a single IP.
+
+Ingress was introduced in Kubernetes 1.1 (2015) to solve this. It's a layer-7 (HTTP/HTTPS) routing layer that sits in front of your Services:
+
+```
+Internet
+    │
+    ▼
+Ingress Controller (one per cluster, one IP)
+    │  reads Ingress rules
+    ├──▶ host: app.local  → Service: course-app
+    └──▶ host: status.local → Service: uptime-kuma
+```
+
+### How it works
+
+There are two separate pieces:
+
+1. **`Ingress` resource** (`networking.k8s.io/v1`) — a config object. Declares rules: which hostnames and paths map to which Services. By itself it does nothing.
+2. **Ingress Controller** — the actual proxy/load balancer (nginx, Traefik, HAProxy, etc.) that watches for Ingress resources and programs itself accordingly.
+
+The split is intentional: same rules, swappable implementation.
+
+### A note on deprecation
+
+The Kubernetes Ingress API (`networking.k8s.io/v1`) is **not formally deprecated**, but it is widely considered legacy. In Kubernetes 1.28, the **Gateway API** (`gateway.networking.k8s.io`) graduated to stable (v1) and is the recommended path forward for new clusters.
+
+Gateway API improves on Ingress by:
+- Splitting concerns across role-oriented resources (`GatewayClass`, `Gateway`, `HTTPRoute`)
+- Supporting TCP/UDP routing natively (not just HTTP)
+- Enabling more expressive traffic splitting and header manipulation
+
+In practice, **Ingress is still everywhere**. The nginx ingress controller alone runs in millions of clusters. You will encounter it constantly, which is why this lab teaches it.
+
+**Further reading:**
+- [Kubernetes Ingress docs](https://kubernetes.io/docs/concepts/services-networking/ingress/)
+- [Ingress Controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/)
+- [Gateway API docs](https://kubernetes.io/docs/concepts/services-networking/gateway/) — the modern successor
+- [Gateway API project site](https://gateway-api.sigs.k8s.io/)
+
+---
+
 ## Part 1: Recreate Your kind Cluster
 
 Ingress needs ports 80 and 443 mapped from your host into the kind node.
@@ -44,7 +95,7 @@ Ingress resources don't do anything until a controller is running.
 Apply the kind-specific nginx ingress manifest:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/refs/heads/release-1.12/deploy/static/provider/kind/deploy.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/refs/heads/release-1.13/deploy/static/provider/kind/deploy.yaml
 ```
 
 Wait for it to be ready:
@@ -55,6 +106,22 @@ kubectl wait --namespace ingress-nginx \
   --selector=app.kubernetes.io/component=controller \
   --timeout=180s
 ```
+
+> **Heads up — node scheduling fix required.**
+> The release-1.13 manifest no longer pins the controller to the control-plane node by default. In a multi-node kind cluster the controller pod can land on a worker, which doesn't have the `extraPortMappings` for ports 80/443. If `curl http://127.0.0.1/` returns "Connection reset by peer" later, run this patch now:
+>
+> ```bash
+> kubectl patch deployment ingress-nginx-controller -n ingress-nginx \
+>   --type merge \
+>   -p '{"spec":{"template":{"spec":{"nodeSelector":{"ingress-ready":"true"}}}}}'
+> kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx
+> ```
+>
+> Confirm the pod is on the control-plane before continuing:
+> ```bash
+> kubectl get pod -n ingress-nginx -o wide
+> # NODE column should show lab-control-plane
+> ```
 
 Verify the IngressClass:
 
@@ -267,9 +334,31 @@ Pod: course-app-xxxxx:5000
 
 ---
 
-## Checkpoint
+## Cleanup
 
-You are done when:
-- `app.local` returns your Flask app
-- `status.local` returns the Uptime Kuma UI
-- You can explain what `ingressClassName` does and why host-based routing works
+Destroy the kind cluster when you're done — Lab 2 uses the shared cluster, not this one:
+
+```bash
+kind delete cluster --name lab
+kubectl config get-contexts  # confirm kind-lab context is gone
+```
+
+---
+
+## Checkpoint ✅
+
+Before moving on, verify:
+
+- [ ] `curl -H "Host: app.local" http://127.0.0.1/` (or `http://app.local/`) returns your Flask app
+- [ ] `curl -H "Host: status.local" http://127.0.0.1/` returns the Uptime Kuma UI
+- [ ] `kubectl get ingress` shows both Ingress resources with an ADDRESS populated
+- [ ] You applied the nodeSelector patch and confirmed the controller pod runs on `lab-control-plane`
+- [ ] You can explain what `ingressClassName: nginx` does and why removing it would break routing
+- [ ] You can trace the full request path: curl → host port → kind node → nginx controller → Service → Pod
+- [ ] You understand why the `EXTERNAL-IP` on the ingress-nginx Service stays `<pending>` in kind
+
+---
+
+## Next Lab
+
+Continue to [Lab 2: Gateway API on the Shared Cluster](../lab-02-gateway-api/)

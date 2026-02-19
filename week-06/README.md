@@ -276,6 +276,17 @@ You will:
 - Restore CoreDNS config and verify service discovery recovery
 - Map this workflow to `jerry-coredns-loop`
 
+### Lab 6 (CKA Extension): CNI Plugin Comparison
+
+See [labs/lab-06-cni-comparison/](./labs/lab-06-cni-comparison/)
+
+You will:
+- Apply a NetworkPolicy on a kindnet cluster and observe that it is silently ignored
+- Bootstrap a cluster with `disableDefaultCNI: true` and see pods stuck in `Pending`
+- Install Calico and watch nodes reach `Ready` with pod IPs from the Calico pool
+- Apply the same deny policy and observe traffic being blocked by Calico's enforcement
+- Learn when to choose kindnet, Calico, or Cilium for a given production scenario
+
 ---
 
 ## Generated Visualizations
@@ -309,6 +320,7 @@ Complete these exercises in the container-gym before next class:
 | `jerry-networkpolicy-dns` | 25 min | Default deny + DNS allow rules |
 | `jerry-gateway-route-detached` | 25 min | HTTPRoute attachment and status conditions |
 | `jerry-coredns-loop` *(optional extension)* | 25 min | DNS outage triage and CoreDNS recovery |
+| `33-jerry-wrong-cni-config` *(optional extension)* | 25 min | CNI misconfiguration; pods pending, no node networking |
 
 ---
 
